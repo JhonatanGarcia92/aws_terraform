@@ -1,0 +1,83 @@
+# Configuração da VPC
+resource "aws_vpc" "example" {
+  cidr_block = "10.0.0.0/16"
+}
+
+# Configuração de subnets públicas
+resource "aws_subnet" "public" {
+  count = 4
+  cidr_block = "10.0.${count.index}.0/24"
+  vpc_id = aws_vpc.example.id
+  tags = {
+    Name = "public-${count.index}"
+  }
+}
+
+# Configuração de subnets privadas
+resource "aws_subnet" "private" {
+  count = 4
+  cidr_block = "10.0.${count.index + 4}.0/24"
+  vpc_id = aws_vpc.example.id
+  tags = {
+    Name = "private-${count.index}"
+  }
+}
+
+# Configuração do grupo de segurança ECS
+resource "aws_security_group" "ecs" {
+  name_prefix = "ecs-"
+  vpc_id = aws_vpc.example.id
+
+  ingress {
+    from_port = 0
+    to_port = 65535
+    protocol = "tcp"
+    cidr_blocks = ["10.0.0.0/8"]
+  }
+}
+
+# Configuração do cluster ECS
+resource "aws_ecs_cluster" "example" {
+  name = "example-cluster"
+}
+
+# Configuração do grupo de autoescala EC2
+resource "aws_launch_configuration" "example" {
+  name_prefix = "example-lc-"
+  image_id = "ami-123456789"
+  instance_type = "t2.micro"
+  security_groups = [aws_security_group.ecs.id]
+}
+
+resource "aws_autoscaling_group" "example" {
+  name_prefix = "example-asg-"
+  vpc_zone_identifier = aws_subnet.private.*.id
+  launch_configuration = aws_launch_configuration.example.id
+  max_size = 4
+  min_size = 2
+}
+
+# Configuração do load balancer
+resource "aws_lb" "example" {
+  name = "example-lb"
+  subnets = aws_subnet.public.*.id
+  internal = false
+}
+
+resource "aws_lb_target_group" "example" {
+  name_prefix = "example-tg-"
+  port = 80
+  protocol = "HTTP"
+  vpc_id = aws_vpc.example.id
+}
+
+resource "aws_lb_listener" "example" {
+  load_balancer_arn = aws_lb.example.arn
+  port = "80"
+  protocol = "HTTP"
+
+  default_action {
+    target_group_arn = aws_lb_target_group.example.arn
+    type = "forward"
+  }
+}
